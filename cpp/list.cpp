@@ -265,37 +265,79 @@ Return_code  list_push_back  (List* list, Element_value new_element_value) {
     return SUCCESS;
 }
 
+
+Return_code  list_push_before  (List* list, int target, Element_value new_element_value) {
+
+    ASSERT_LIST_OK (list);
+
+
+    if (list->top_free_ind == -1) {
+
+        try ( LIST_PUSH_RESIZE (list) );
+    }
+
+
+    int anker          = list->top_free_ind;
+    list->top_free_ind = list->root [list->top_free_ind].next;
+
+
+    list->root [anker] = {
+        .element = {new_element_value, false},
+        .prev    = list->root [target].prev,
+        .next    = target,
+    };
+
+    list->root [list->root [target].prev].next = anker;
+    list->root [target].prev                   = anker;
+
+
+    list->is_linearized = false;
+    list->size += 1;
+
+
+    LIST_AFTER_OPERATION_DUMPING (list);
+
+
+    return SUCCESS;
+}
+
+
+Return_code  list_push_after  (List* list, int target, Element_value new_element_value) {
+
+    ASSERT_LIST_OK (list);
+
+
+    if (list->top_free_ind == -1) {
+
+        try ( LIST_PUSH_RESIZE (list) );
+    }
+
+
+    int anker          = list->top_free_ind;
+    list->top_free_ind = list->root [list->top_free_ind].next;
+
+
+    list->root [anker] = {
+        .element = {new_element_value, false},
+        .prev    = target,
+        .next    = list->root [target].next,
+    };
+
+    list->root [list->root [target].next].prev = anker;
+    list->root [target].next                   = anker;
+
+
+    list->is_linearized = false;
+    list->size += 1;
+
+
+    LIST_AFTER_OPERATION_DUMPING (list);
+
+
+    return SUCCESS;
+}
+
 /*
-Return_code  list_push_before  (List* list, int anker, Element_value new_element_value) {
-
-    ASSERT_LIST_OK (list);
-    if (anker)
-
-    if ()
-
-
-    LIST_AFTER_OPERATION_DUMPING (list);
-
-
-    return SUCCESS;
-}
-
-
-Return_code  list_push_after  (List* list, int anker, Element_value new_element_value) {
-
-    ASSERT_LIST_OK (list);
-
-
-    if ()
-
-
-    LIST_AFTER_OPERATION_DUMPING (list);
-
-
-    return SUCCESS;
-}
-
-
 Element  list_pop  (List* list, Return_code* return_code_ptr) {
 
     ASSERT_LIST_OK_FOR_LIST_POP (list);
@@ -406,33 +448,33 @@ void  _flist_dump  (List* list, const char* file_name, const char* file, const c
 
     for (int i = 0; i < list->capacity; i++) {
     
-        if (i == 0)                         { fprintf (dump_file, "(root) "); }
-        else if (list->root [i].prev != -1) { fprintf (dump_file, "(in)   "); }
-        else                                { fprintf (dump_file, "(out)  "); }
+        if (i == 0)                         { fprintf (dump_file, "(root)     "); }
+        else if (list->root [i].prev != -1) { fprintf (dump_file, "(in)       "); }
+        else                                { fprintf (dump_file, "(out)      "); }
 
         fprintf (dump_file, "[%2d] ", i);
-        fprintf (dump_file, "%-4.2lf ", list->root [i].element.value);
+        fprintf (dump_file, "%8.2lf     ", list->root [i].element.value);
 
-        if (list->root [i].element.poisoned) { fprintf (dump_file, "    (poisoned) "); }
-        else                                 { fprintf (dump_file, "(not poisoned) "); }
+        if (list->root [i].element.poisoned) { fprintf (dump_file, "    (poisoned)     "); }
+        else                                 { fprintf (dump_file, "(not poisoned)     "); }
 
-        fprintf (dump_file, "next - [%2d], prev - [%2d]\n", list->root [i].next, list->root [i].prev);
+        fprintf (dump_file, "next - [%2d],     prev - [%2d]\n", list->root [i].next, list->root [i].prev);
     }
 
 
     fprintf (dump_file, "\nfree elements:\n");
     for (int i = list->top_free_ind; i != -1; i = list->root [i].next) {
     
-        if (list->root [i].prev != -1) { fprintf (dump_file, "(in)   "); }
-        else                           { fprintf (dump_file, "(out)  "); }
+        if (list->root [i].prev != -1) { fprintf (dump_file, "(in)       "); }
+        else                           { fprintf (dump_file, "(out)      "); }
 
         fprintf (dump_file, "[%2d] ", i);
-        fprintf (dump_file, "%-4.2lf ",  list->root [i].element.value);
+        fprintf (dump_file, "%8.2lf     ",  list->root [i].element.value);
 
-        if (list->root [i].element.poisoned) { fprintf (dump_file, "    (poisoned) "); }
-        else                                 { fprintf (dump_file, "(not poisoned) "); }
+        if (list->root [i].element.poisoned) { fprintf (dump_file, "    (poisoned)     "); }
+        else                                 { fprintf (dump_file, "(not poisoned)     "); }
 
-        fprintf (dump_file, "next - [%2d], prev - [%2d]\n", list->root [i].next, list->root [i].prev);
+        fprintf (dump_file, "next - [%2d],     prev - [%2d]\n", list->root [i].next, list->root [i].prev);
     }
 
 

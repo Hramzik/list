@@ -25,10 +25,9 @@
 
 //-------------------- SETTINGS --------------------
 #define ON_LIST_ERROR_DUMPING
-#define ON_LIST_AFTER_OPERATION_DUMPING
+#define ON_LIST_AFTER_OPERATION_DUMPIN
 
-#define  log_file_name "logs.txt"
-#define dump_file_name "dump.txt"
+#define dump_file_name "txt/dump.txt"
 
 const double list_resize_coefficient = 1.2;
 //--------------------------------------------------
@@ -133,8 +132,8 @@ Return_code _list_canary_resize (List* list, int new_capacity);
 
 Return_code  list_push_front    (List* list, Element_value new_element_value);
 Return_code  list_push_back     (List* list, Element_value new_element_value);
-Return_code  list_push_before   (List* list, int anker, Element_value new_element_value);
-Return_code  list_push_after    (List* list, int anker, Element_value new_element_value);
+Return_code  list_push_before   (List* list, int target, Element_value new_element_value);
+Return_code  list_push_after    (List* list, int target, Element_value new_element_value);
 
 Element      list_pop           (List* list, Return_code* return_code_ptr = nullptr);
 Return_code  list_linearize     (List* list);

@@ -17,7 +17,7 @@
 
 
 
-#define log_file_name "txt/logs.txt"
+#define log_file_name "work/logs.txt"
 #define LOG_ERROR(code)      _log_error   (code,    __FILE__, __PRETTY_FUNCTION__, __LINE__)
 #define LOG_MESSAGE(message) _log_message (message, __FILE__, __PRETTY_FUNCTION__, __LINE__)
 

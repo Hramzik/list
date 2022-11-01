@@ -57,6 +57,7 @@ Return_code  list_dtor  (List* list) {
 Return_code  list_resize  (List* list, int new_capacity, bool linearize) {
 
     ASSERT_LIST_OK (list);
+    if (new_capacity <= 0) { LOG_ERROR (BAD_ARGS); LIST_ERROR_DUMP (list); return BAD_ARGS; }
 
 
     if (linearize) {
@@ -69,15 +70,21 @@ Return_code  list_resize  (List* list, int new_capacity, bool linearize) {
 
 
     list->root = (Node*) realloc (list->root, NODE_SIZE * new_capacity);
+    list->top_free_ind = -1;
     list->capacity = new_capacity;
     if (list->root == nullptr && new_capacity != 0) { LOG_ERROR (MEMORY_ERR); LIST_ERROR_DUMP (list); return MEMORY_ERR; }
 
 
-    try ( _list_fill_with_poison (list, old_capacity, new_capacity) );
-    if (new_capacity > old_capacity) { try ( _list_free_stack_fill (list, old_capacity, new_capacity) ); }
+    if (new_capacity > old_capacity) {
+
+        try ( _list_fill_with_poison (list, old_capacity, new_capacity) );
+    }
 
 
     if (list->size > new_capacity) { list->size = new_capacity; }
+
+
+    try ( _list_free_stack_fill  (list, list->size + 1, new_capacity) );
 
 
     LIST_AFTER_OPERATION_DUMPING (list);
@@ -116,6 +123,7 @@ Return_code  list_linearize  (List* list) {
     list->root = new_buffer;
 
 
+    list->top_free_ind = -1;
     try ( _list_free_stack_fill (list, logical_num, list->capacity) );
 
 
@@ -139,7 +147,10 @@ Return_code _list_free_stack_fill  (List* list, int first, int last) {
     bool changed_flag = false;
     while (current >= first) {
     
-        list->root[current].next = next;
+        list->root[current].element = Element {NAN, true};
+        list->root[current].next    = next;
+        list->root[current].prev    = -1;
+
         next = current;
         current--;
 
@@ -166,8 +177,11 @@ Return_code _list_free_stack_push  (List* list, int freed) {
     if ( (!list) || (freed < 0) ) { LOG_ERROR (BAD_ARGS); LIST_ERROR_DUMP(list); return BAD_ARGS; }
 
 
-    list->root[freed].next = list->top_free_ind;
-    list->top_free_ind = freed;
+    list->root[freed].element = Element {NAN, true};
+    list->root[freed].next    = list->top_free_ind;
+    list->root[freed].prev    = -1;
+
+    list->top_free_ind        = freed;
 
 
     return SUCCESS;
@@ -281,8 +295,8 @@ Return_code  list_push_before  (List* list, int target, Element_value new_elemen
     list->top_free_ind = list->root [list->top_free_ind].next;
 
 
-    list->root [anker] = {
-        .element = {new_element_value, false},
+    list->root [anker] = Node {
+        .element = Element {new_element_value, false},
         .prev    = list->root [target].prev,
         .next    = target,
     };
@@ -317,8 +331,8 @@ Return_code  list_push_after  (List* list, int target, Element_value new_element
     list->top_free_ind = list->root [list->top_free_ind].next;
 
 
-    list->root [anker] = {
-        .element = {new_element_value, false},
+    list->root [anker] = Node {
+        .element = Element {new_element_value, false},
         .prev    = target,
         .next    = list->root [target].next,
     };
@@ -337,23 +351,31 @@ Return_code  list_push_after  (List* list, int target, Element_value new_element
     return SUCCESS;
 }
 
-/*
-Element  list_pop  (List* list, Return_code* return_code_ptr) {
+
+Element  list_pop_back  (List* list, Return_code* return_code_ptr, bool shrink) {
 
     ASSERT_LIST_OK_FOR_LIST_POP (list);
 
 
     Element return_element = {NAN, true};
+    int     deleted_ind    = list->root->prev;
+
 
     if (list->size != 0) {
 
         list->size -= 1;
-        return_element = list->root [list->size];
-        list->root [list->size] = Element {NAN, true};
+
+
+        return_element = list->root [deleted_ind].element;
+
+
+        list->root [list->root [deleted_ind].prev].next = 0;                             //uberprev
+        list->root->prev                                = list->root [deleted_ind].prev; //root
+        _list_free_stack_push (list, deleted_ind);                                       //prev
     }
 
 
-    if ( (double) list->size * pow (list_resize_coefficient, 2) <= (double) list->capacity) {
+    if ( (shrink) && (double) list->size * pow (list_resize_coefficient, 2) <= (double) (list->capacity - 1) ) {
 
         Return_code resize_code = LIST_POP_RESIZE (list);
 
@@ -375,7 +397,148 @@ Element  list_pop  (List* list, Return_code* return_code_ptr) {
 
     return return_element;
 }
-*/
+
+
+Element  list_pop_front  (List* list, Return_code* return_code_ptr, bool shrink) {
+
+    ASSERT_LIST_OK_FOR_LIST_POP (list);
+
+
+    Element return_element = {NAN, true};
+    int     deleted_ind    = list->root->next;
+
+
+    if (list->size != 0) {
+
+        list->size -= 1;
+
+
+        return_element = list->root [deleted_ind].element;
+
+
+        list->root [list->root [deleted_ind].next].prev = 0;                             //ubernext
+        list->root->next                                = list->root [deleted_ind].next; //root
+        _list_free_stack_push (list, deleted_ind);                                       //next
+    }
+
+
+    if ( (shrink) && (double) list->size * pow (list_resize_coefficient, 2) <= (double) (list->capacity - 1) ) {
+
+        Return_code resize_code = LIST_POP_RESIZE (list);
+
+        if (resize_code) {
+
+            LOG_ERROR (resize_code);
+            if (return_code_ptr) { *return_code_ptr = BAD_ARGS; }
+            LIST_ERROR_DUMP (list);
+            return Element {NAN, true};
+        }
+    }
+
+
+    if (return_code_ptr) { *return_code_ptr = SUCCESS; }
+
+
+    LIST_AFTER_OPERATION_DUMPING (list);
+
+
+    return return_element;
+}
+
+
+Element  list_pop_before  (List* list, int target, Return_code* return_code_ptr, bool shrink) {
+
+    ASSERT_LIST_OK_FOR_LIST_POP (list);
+
+
+    Element return_element = {NAN, true};
+    int     deleted_ind    = list->root [target].prev;
+
+
+    if (list->size != 0) {
+
+        list->size -= 1;
+
+
+        return_element = list->root [deleted_ind].element;
+
+
+        list->root [list->root [deleted_ind].prev].next = target;                        //uberprev
+        list->root [target].prev                        = list->root [deleted_ind].prev; //target
+        _list_free_stack_push (list, deleted_ind);                                       //deleted
+    }
+
+
+    if ( (shrink) && (double) list->size * pow (list_resize_coefficient, 2) <= (double) (list->capacity - 1) ) {
+
+        Return_code resize_code = LIST_POP_RESIZE (list);
+
+        if (resize_code) {
+
+            LOG_ERROR (resize_code);
+            if (return_code_ptr) { *return_code_ptr = BAD_ARGS; }
+            LIST_ERROR_DUMP (list);
+            return Element {NAN, true};
+        }
+    }
+
+
+    if (return_code_ptr) { *return_code_ptr = SUCCESS; }
+
+
+    LIST_AFTER_OPERATION_DUMPING (list);
+
+
+    return return_element;
+}
+
+
+Element  list_pop_after  (List* list, int target, Return_code* return_code_ptr, bool shrink) {
+
+    ASSERT_LIST_OK_FOR_LIST_POP (list);
+
+
+    Element return_element = {NAN, true};
+    int     deleted_ind    = list->root [target].next;
+
+
+    if (list->size != 0) {
+
+        list->size -= 1;
+
+
+        return_element = list->root [deleted_ind].element;
+
+
+        list->root [list->root [deleted_ind].next].prev = target;                        //ubernext
+        list->root [target].next                        = list->root [deleted_ind].next; //target
+        _list_free_stack_push (list, deleted_ind);                                       //deleted
+    }
+
+
+    if ( (shrink) && (double) list->size * pow (list_resize_coefficient, 2) <= (double) (list->capacity - 1) ) {
+
+        Return_code resize_code = LIST_POP_RESIZE (list);
+
+        if (resize_code) {
+
+            LOG_ERROR (resize_code);
+            if (return_code_ptr) { *return_code_ptr = BAD_ARGS; }
+            LIST_ERROR_DUMP (list);
+            return Element {NAN, true};
+        }
+    }
+
+
+    if (return_code_ptr) { *return_code_ptr = SUCCESS; }
+
+
+    LIST_AFTER_OPERATION_DUMPING (list);
+
+
+    return return_element;
+}
+
 
 List_state  list_damaged  (List* list) {
 
@@ -386,7 +549,24 @@ List_state  list_damaged  (List* list) {
 
 
     if (list->size > list->capacity) { list_state |= LS_SIZE_GREATER_THAN_CAPACITY; }
+
+
     if (list->root == nullptr)       { list_state |= LS_NULLPTR_NODES; }
+
+
+    if (!list->root->element.poisoned) { list_state |= LS_INCORRECT_POISON_DISTRIBUTION; }
+    for (int i = 1; i < list->capacity; i++) {
+    
+        if ((list->root [i].prev != -1 &&  list->root [i].element.poisoned) ||
+            (list->root [i].prev == -1 && !list->root [i].element.poisoned)) {
+        
+            list_state |= LS_INCORRECT_POISON_DISTRIBUTION;
+            break;
+        }
+    }
+
+
+    if (list->is_linearized && !list_linearized (list)) { list_state |= LS_INCORRECT_LINEARIZATION_FLAG; }
 
 
     return list_state;
@@ -434,9 +614,9 @@ void  _flist_dump  (List* list, const char* file_name, const char* file, const c
     else            { fprintf (dump_file, "ok\n"); }
 
 
-    fprintf (dump_file, "list is ");
-    if (list->is_linearized) { fprintf (dump_file, "n't linearized\n"); }
-    else                     { fprintf (dump_file,     "linearized\n"); }
+    fprintf (dump_file, "list is");
+    if (list->is_linearized) { fprintf (dump_file,    " linearized\n"); }
+    else                     { fprintf (dump_file, "n't linearized\n"); }
 
 
     fprintf (dump_file, "root     %d\n",   1);
@@ -447,7 +627,7 @@ void  _flist_dump  (List* list, const char* file_name, const char* file, const c
 
 
     for (int i = 0; i < list->capacity; i++) {
-    
+
         if (i == 0)                         { fprintf (dump_file, "(root)     "); }
         else if (list->root [i].prev != -1) { fprintf (dump_file, "(in)       "); }
         else                                { fprintf (dump_file, "(out)      "); }
@@ -484,25 +664,6 @@ void  _flist_dump  (List* list, const char* file_name, const char* file, const c
     fclose (dump_file);
 }
 
-/*
-Return_code _list_fill_with_poison (List* list, int from, int to) {
-
-    if (!list || (to > list->capacity) ) { LOG_ERROR (BAD_ARGS); LIST_ERROR_DUMP(list); return BAD_ARGS; }
-
-
-    for (int i = from; i < to; i++) {
-
-        list->root[i] = Element {NAN, true};
-    }
-
-
-    LIST_AFTER_OPERATION_DUMPING (list);
-
-
-    return SUCCESS;
-}
-*/
-
 
 int  _remainder  (int a, int b) {
 
@@ -514,6 +675,218 @@ int  _remainder  (int a, int b) {
 
 
     return ans;
+}
+
+
+bool  list_linearized  (List* list) {
+
+    if (!list) { return false; }
+
+
+    for (int i = 0; i <= list->size; i++) {
+    
+        if (list->root [i].next != _remainder (i + 1, list->size + 1) ||
+            list->root [i].prev != _remainder (i - 1, list->size + 1)) {
+
+            return false;
+        }
+    }
+
+
+    return true;
+}
+
+
+void  _flist_graphdump  (List* list, const char* file_name, const char* file, const char* func, int line, const char* num, const char* additional_text) {
+
+    assert ( (file_name) && (file) && (func) && (line > 0) );
+
+
+    FILE* dump_file = fopen (file_name, "a");
+    if (dump_file == nullptr) { LOG_ERROR (FILE_ERR); return; }
+
+
+    setvbuf (dump_file, NULL, _IONBF, 0);
+
+
+    fprintf (dump_file, "<pre><h1>");
+    fprintf (dump_file,"%s", additional_text);
+    fprintf (dump_file, "</h1>");
+    fprintf (dump_file, "<h2>Dumping list at %s in function %s (line %d)...</h2>\n\n", file, func, line);
+
+
+    if (!list) { fprintf (dump_file, "List pointer is nullptr!\n\n"); return; }
+
+
+    fprintf (dump_file, "this list has name ");
+    if (list->debug_info.name != nullptr) { fprintf (dump_file, "%s ", list->debug_info.name); }
+    else                                  { fprintf (dump_file, "UNKNOWN NAME "); }
+    fprintf (dump_file, "[%p]\n", list->debug_info.adress);
+
+    fprintf (dump_file, "it was created in file ");
+    if (list->debug_info.birth_file != nullptr) { fprintf (dump_file, "%s\n", list->debug_info.birth_file); }
+    else                                        { fprintf (dump_file, "UNKNOWN NAME\n"); }
+
+    fprintf (dump_file, "in function ");
+    if (list->debug_info.birth_func != nullptr) { fprintf (dump_file, "%s ", list->debug_info.birth_func); }
+    else                                        { fprintf (dump_file, "UNKNOWN NAME "); }
+
+    fprintf (dump_file, "(line %d)\n\n", list->debug_info.birth_line);
+
+
+    fprintf (dump_file, "list is ");
+    List_state list_state = list_damaged (list);
+    if (list_state) { fprintf (dump_file, "damaged (damage code %u)\n", list_state); }
+    else            { fprintf (dump_file, "ok\n"); }
+
+
+    fprintf (dump_file, "list is");
+    if (list->is_linearized) { fprintf (dump_file,    " linearized\n"); }
+    else                     { fprintf (dump_file, "n't linearized\n"); }
+
+
+    fprintf (dump_file, "root     %d\n",   1);
+    fprintf (dump_file, "size     %d\n",   list->size);
+    fprintf (dump_file, "capacity %d\n\n", list->capacity);
+    if (list->root) { fprintf (dump_file, "nodes [%p]:\n", list->root); }
+    else            { fprintf (dump_file, "nodes [nullptr]:\n"); }
+
+
+    for (int i = 0; i < list->capacity; i++) {
+
+        if (i == 0)                         { fprintf (dump_file, "(root)     "); }
+        else if (list->root [i].prev != -1) { fprintf (dump_file, "(in)       "); }
+        else                                { fprintf (dump_file, "(out)      "); }
+
+        fprintf (dump_file, "[%2d] ", i);
+        fprintf (dump_file, "%8.2lf     ", list->root [i].element.value);
+
+        if (list->root [i].element.poisoned) { fprintf (dump_file, "    (poisoned)     "); }
+        else                                 { fprintf (dump_file, "(not poisoned)     "); }
+
+        fprintf (dump_file, "next - [%2d],     prev - [%2d]\n", list->root [i].next, list->root [i].prev);
+    }
+
+
+    fprintf (dump_file, "\nfree elements:\n");
+    for (int i = list->top_free_ind; i != -1; i = list->root [i].next) {
+    
+        if (list->root [i].prev != -1) { fprintf (dump_file, "(in)       "); }
+        else                           { fprintf (dump_file, "(out)      "); }
+
+        fprintf (dump_file, "[%2d] ", i);
+        fprintf (dump_file, "%8.2lf     ",  list->root [i].element.value);
+
+        if (list->root [i].element.poisoned) { fprintf (dump_file, "    (poisoned)     "); }
+        else                                 { fprintf (dump_file, "(not poisoned)     "); }
+
+        fprintf (dump_file, "next - [%2d],     prev - [%2d]\n", list->root [i].next, list->root [i].prev);
+    }
+
+
+    fprintf (dump_file, "\n");
+
+
+    char name [MAX_COMMAND_LEN] = list_graph_file_name;
+    strcat (name, num);
+    strcat (name, ".txt");
+    fprintf (dump_file, "<img src=\"%s\">", name);
+
+
+    fclose (dump_file);
+}
+
+
+void  list_show_graph_dump  (void) {
+
+    char command [MAX_COMMAND_LEN] = "start ";
+    strcat (command, list_graph_dump_file_name);
+    strcat (command, ".html");
+    system (command);
+}
+
+void  list_generate_graph_describtion  (List* list, const char* num) {
+
+    if (!list) { return; } printf ("%s\n", num);
+
+
+    char name [MAX_COMMAND_LEN] = "";
+    strcat (name, list_graph_describtion_file_name);
+    strcat (name, num);
+    strcat (name, ".txt");
+
+    FILE* graph_file = fopen (name, "w");
+    if (graph_file == nullptr) { LOG_ERROR (FILE_ERR); return; }
+
+
+    fprintf (graph_file, "digraph G {\n\n");
+
+
+    fprintf (graph_file, "    ranksep = 0.5; splines = ortho\n    bgcolor = \"#%s\"\n", list_dump_bgclr);
+    fprintf (graph_file, "    edge [minlen = 3, penwidth = 3];\n    node [shape = record, style = rounded, fixedsize = true, height = 1, width = 2, fontsize = 10];\n\n");
+    fprintf (graph_file, "    {rank = min; above_node [width = 3, style = invis];}\n\n");
+    fprintf (graph_file, "    {rank = same;\n");
+
+    for (int i = 0; i < list->capacity; i++) {
+
+        if (list->root [i].prev != -1) {
+
+            fprintf (graph_file, "        node%d [style = \"rounded, filled\", color=\"#%s\", ", i, list_dump_nodeclr);
+        }
+
+        else {
+
+            fprintf (graph_file, "        node%d [style = \"rounded, filled\", color=\"#%s\", ", i, list_dump_freeclr);
+        }
+
+        fprintf (graph_file, "label = \"{[%i] | %.2lf | next = %d | prev = %d}\"];\n", i, list->root [i].element.value, list->root [i].next, list->root [i].prev);
+    }
+
+    fprintf (graph_file, "    }\n\n    {rank = max; below_node[width = 3, style = invis]; }\n\n");
+
+    fprintf (graph_file, "    above_node -> node0 [style = invis]; below_node -> node0 [style = invis];\n\n");
+
+
+    for (int i = 0; i < list->capacity; i++) {
+
+        if (i + 1 != list->capacity) {
+
+            fprintf (graph_file, "    node%d -> node%d [style = invis, weight = 5]\n", i, i + 1);
+        }
+
+        if (list->root [i].next != -1) {
+
+            if (list->root [i].prev != -1) {
+            
+                fprintf (graph_file, "    node%d -> node%d [color = \"#%s\"]\n", i, list->root [i].next, list_dump_arrwclr);
+            }
+
+            else {
+
+                fprintf (graph_file, "    node%d -> node%d [color = \"#%s\"]\n", i, list->root [i].next, list_dump_freearrwclr);
+            }
+        }
+    }
+
+
+    fprintf (graph_file, "}");
+
+
+    fclose (graph_file);
+}
+
+
+void  list_generate_graph  (const char* num) {
+
+    char command [MAX_COMMAND_LEN] = "dot -Tsvg ";
+    strcat (command, list_graph_describtion_file_name);
+    strcat (command, num);
+    strcat (command, ".txt");
+    strcat (command, " -o ");
+    strcat (command, list_graph_file_name);
+    strcat (command, num);
+    strcat (command, ".txt");
+    system (command);
 }
 
 

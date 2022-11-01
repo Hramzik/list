@@ -16,8 +16,7 @@
 #define ON_CANARY_PROTECTION
 #define ON_HASH_PROTECTION
 
-#define  log_file_name "logs.txt"
-#define dump_file_name "dump.txt"
+#define stack_dump_file_name "dump.txt"
 
 const double stack_resize_coefficient = 2;
 //--------------------------------------------------

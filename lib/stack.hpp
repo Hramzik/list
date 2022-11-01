@@ -28,7 +28,7 @@
 
 #define  STACK_CTOR(x)  _stack_ctor (x, #x + (#x[0] == '&'), __FILE__, __PRETTY_FUNCTION__, __LINE__)
 #define  STACK_DUMP(x) _fstack_dump (x, nullptr,             __FILE__, __PRETTY_FUNCTION__, __LINE__)
-#define FSTACK_DUMP(x) _fstack_dump (x, dump_file_name,      __FILE__, __PRETTY_FUNCTION__, __LINE__)
+#define FSTACK_DUMP(x) _fstack_dump (x, stack_dump_file_name,      __FILE__, __PRETTY_FUNCTION__, __LINE__)
 
 #define STACK_POP_RESIZE(x)   stack_resize (x, (size_t) fmin ( ceil ( (double) x->capacity / stack_resize_coefficient), x->capacity - 1) )
 #define STACK_PUSH_RESIZE(x)  stack_resize (x, (size_t) fmax ( ceil ( (double) x->capacity * stack_resize_coefficient), x->capacity + 1) )

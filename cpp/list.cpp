@@ -11,15 +11,15 @@ Return_code  _list_ctor  (List* list, const char* name, const char* file, const 
     if (list == nullptr) { LOG_ERROR (BAD_ARGS); LIST_ERROR_DUMP (list); return BAD_ARGS; }
 
 
-    list->eternal          = (Node*) calloc (NODE_SIZE, 1);
-    list->eternal->element = {NAN, true};
-    list->eternal->next    = 0;
-    list->eternal->prev    = 0;
+    list->root          = (Node*) calloc (NODE_SIZE, 1);
+    list->root->element = {NAN, true};
+    list->root->next    = 0;
+    list->root->prev    = 0;
 
 
     list->size          = 0;
-    list->capacity      = 0;
-    list->is_linearized = false;
+    list->capacity      = 1;
+    list->is_linearized = true;
 
     list->top_free_ind = -1; 
 
@@ -43,8 +43,8 @@ Return_code  list_dtor  (List* list) {
     ASSERT_LIST_OK (list);
 
 
-    free (list->eternal);
-    list->eternal = nullptr;
+    free (list->root);
+    list->root = nullptr;
 
 
     LIST_AFTER_OPERATION_DUMPING (list);
@@ -54,26 +54,29 @@ Return_code  list_dtor  (List* list) {
 }
 
 
-Return_code  _list_resize  (List* list, int new_capacity) {
+Return_code  list_resize  (List* list, int new_capacity, bool linearize) {
 
     ASSERT_LIST_OK (list);
 
 
-    if (!list->is_linearized) {
+    if (linearize) {
 
-        list_linearize (list);
+        try ( list_linearize (list) );
     }
 
 
-    list->eternal = (Node*) realloc (list->eternal, NODE_SIZE * new_capacity);
-    if (list->eternal == nullptr && new_capacity != 0) { LOG_ERROR (MEMORY_ERR); LIST_ERROR_DUMP (list); return MEMORY_ERR; }
+    int old_capacity = list->capacity;
 
 
-    _list_fill_with_poison (list, list->capacity, new_capacity);
-    if (new_capacity > list->capacity) { _list_free_stack_fill (list, list->capacity, new_capacity); }
-
-
+    list->root = (Node*) realloc (list->root, NODE_SIZE * new_capacity);
     list->capacity = new_capacity;
+    if (list->root == nullptr && new_capacity != 0) { LOG_ERROR (MEMORY_ERR); LIST_ERROR_DUMP (list); return MEMORY_ERR; }
+
+
+    try ( _list_fill_with_poison (list, old_capacity, new_capacity) );
+    if (new_capacity > old_capacity) { try ( _list_free_stack_fill (list, old_capacity, new_capacity) ); }
+
+
     if (list->size > new_capacity) { list->size = new_capacity; }
 
 
@@ -89,54 +92,69 @@ Return_code  list_linearize  (List* list) {
     ASSERT_LIST_OK (list);
 
 
-    if (list->is_linearized) { return SUCCESS; }
+    if (list->is_linearized) { LIST_AFTER_OPERATION_DUMPING (list); return SUCCESS; }
 
 
-    Node* new_buffer = (Node*) calloc (list->capacity, 1);
+    Node* new_buffer = (Node*) calloc (list->capacity * NODE_SIZE, 1);
     if (!new_buffer) { LOG_ERROR (MEMORY_ERR); LIST_ERROR_DUMP (list); return MEMORY_ERR; }
 
 
     int logical_num  = 0;
     int physical_num = 0;
-    do {
+    while (logical_num <= list->size) {
 
-        new_buffer[logical_num]      = list->eternal[physical_num];
-        new_buffer[logical_num].next = (logical_num + 1) % (list->size);
-        new_buffer[logical_num].prev =  logical_num - 1;
-        physical_num = list->eternal[physical_num].next;
+        new_buffer[logical_num]      = list->root[physical_num];
+        new_buffer[logical_num].next = _remainder ( (logical_num + 1), (list->size + 1) );
+        new_buffer[logical_num].prev = _remainder ( (logical_num - 1), (list->size + 1) );
+
+        physical_num = list->root[physical_num].next;
         logical_num++;
     }
-    while (list->eternal[physical_num].next != 0);
 
 
-    free (list->eternal);
-    list->eternal = new_buffer;
+    free (list->root);
+    list->root = new_buffer;
 
 
-    _list_free_stack_fill (list, logical_num, list->capacity);
+    try ( _list_free_stack_fill (list, logical_num, list->capacity) );
 
 
     list->is_linearized = true;
+
+
+    LIST_AFTER_OPERATION_DUMPING (list);
 
 
     return SUCCESS;
 }
 
 
-
 Return_code _list_free_stack_fill  (List* list, int first, int last) {
 
-    if ( (list_damaged (list)) || (first < 0) || (first >= list->capacity) 
-                               || (last  < 0) || (last  >= list->capacity) ) { LOG_ERROR (BAD_ARGS); LIST_ERROR_DUMP(list); return BAD_ARGS; }
+    if ( (!list) || (first < 0) || (last < 0) ) { LOG_ERROR (BAD_ARGS); LIST_ERROR_DUMP(list); return BAD_ARGS; }
 
 
-    int previous = list->top_free_ind;
-    for (int current = first; current < last;   ) {
+    int  next     = list->top_free_ind;
+    int  current  = last - 1;
+    bool changed_flag = false;
+    while (current >= first) {
     
-        list->eternal[current].next = previous;
-        previous = current;
-        current++;
+        list->root[current].next = next;
+        next = current;
+        current--;
+
+        changed_flag = true;
     }
+
+
+    if (changed_flag) {
+
+        current++;
+        list->top_free_ind = current;
+    }
+
+
+    LIST_AFTER_OPERATION_DUMPING (list);
 
 
     return SUCCESS;
@@ -145,10 +163,10 @@ Return_code _list_free_stack_fill  (List* list, int first, int last) {
 
 Return_code _list_free_stack_push  (List* list, int freed) { 
 
-    if ( (list_damaged (list)) || (freed < 0) || (freed >= list->capacity) ) { LOG_ERROR (BAD_ARGS); LIST_ERROR_DUMP(list); return BAD_ARGS; }
+    if ( (!list) || (freed < 0) ) { LOG_ERROR (BAD_ARGS); LIST_ERROR_DUMP(list); return BAD_ARGS; }
 
 
-    list->eternal[freed].next = list->top_free_ind;
+    list->root[freed].next = list->top_free_ind;
     list->top_free_ind = freed;
 
 
@@ -158,15 +176,18 @@ Return_code _list_free_stack_push  (List* list, int freed) {
 
 Return_code _list_fill_with_poison (List* list, int from,  int to) {
 
-    if ( (list_damaged (list)) || (from < 0) || (from >= list->capacity) 
-                               || (to   < 0) || (to   >= list->capacity) ) { LOG_ERROR (BAD_ARGS); LIST_ERROR_DUMP(list); return BAD_ARGS; }
+    if ( (from < 0) || (to < 0) ) { LOG_ERROR (BAD_ARGS); LIST_ERROR_DUMP(list); return BAD_ARGS; }
 
 
     for (int current = from; current < to; current++) {
     
-        list->eternal[current].element = {NAN, true};
-        list->eternal[current].prev  = -1;
+        list->root[current].element = {NAN, true};
+        list->root[current].prev  = -1;
+        list->root[current].next  = -1;
     }
+
+
+    LIST_AFTER_OPERATION_DUMPING (list);
 
 
     return SUCCESS;
@@ -174,6 +195,93 @@ Return_code _list_fill_with_poison (List* list, int from,  int to) {
 
 
 Return_code  list_push_front  (List* list, Element_value new_element_value) {
+
+    ASSERT_LIST_OK (list);
+
+
+    if (list->top_free_ind == -1) {
+
+        try ( LIST_PUSH_RESIZE (list) );
+    }
+
+
+    int anker          = list->top_free_ind;
+    list->top_free_ind = list->root [list->top_free_ind].next;
+
+
+    list->root [anker] = {
+        .element = {.value = new_element_value, .poisoned = false},
+        .prev    = 0,
+        .next    = list->root->next,
+    };
+
+    list->root [list->root->next].prev = anker;
+    list->root->next                   = anker;
+
+
+    list->is_linearized = false;
+    list->size += 1;
+
+
+    LIST_AFTER_OPERATION_DUMPING (list);
+
+
+    return SUCCESS;
+}
+
+
+Return_code  list_push_back  (List* list, Element_value new_element_value) {
+
+    ASSERT_LIST_OK (list);
+
+
+    if (list->top_free_ind == -1) {
+
+        try ( LIST_PUSH_RESIZE (list) );
+    }
+
+
+    int anker          = list->top_free_ind;
+    list->top_free_ind = list->root [list->top_free_ind].next;
+
+
+    list->root [anker] = {
+        .element = {new_element_value, false},
+        .prev    = list->root->prev,
+        .next    = 0
+    };
+
+    list->root [list->root->prev].next = anker;
+    list->root->prev                   = anker;
+
+
+    list->is_linearized = false;
+    list->size += 1;
+
+
+    LIST_AFTER_OPERATION_DUMPING (list);
+
+
+    return SUCCESS;
+}
+
+/*
+Return_code  list_push_before  (List* list, int anker, Element_value new_element_value) {
+
+    ASSERT_LIST_OK (list);
+    if (anker)
+
+    if ()
+
+
+    LIST_AFTER_OPERATION_DUMPING (list);
+
+
+    return SUCCESS;
+}
+
+
+Return_code  list_push_after  (List* list, int anker, Element_value new_element_value) {
 
     ASSERT_LIST_OK (list);
 
@@ -198,8 +306,8 @@ Element  list_pop  (List* list, Return_code* return_code_ptr) {
     if (list->size != 0) {
 
         list->size -= 1;
-        return_element = list->eternal [list->size];
-        list->eternal [list->size] = Element {NAN, true};
+        return_element = list->root [list->size];
+        list->root [list->size] = Element {NAN, true};
     }
 
 
@@ -236,7 +344,7 @@ List_state  list_damaged  (List* list) {
 
 
     if (list->size > list->capacity) { list_state |= LS_SIZE_GREATER_THAN_CAPACITY; }
-    if (list->eternal == nullptr)      { list_state |= LS_NULLPTR_NODES; }
+    if (list->root == nullptr)       { list_state |= LS_NULLPTR_NODES; }
 
 
     return list_state;
@@ -284,10 +392,48 @@ void  _flist_dump  (List* list, const char* file_name, const char* file, const c
     else            { fprintf (dump_file, "ok\n"); }
 
 
-    fprintf (dump_file, "size     %d\n",      list->size);
-    fprintf (dump_file, "capacity %d\n\n",  list->capacity);
-    if (list->eternal) { fprintf (dump_file, "nodes [%p]:\n", list->eternal); }
-    else               { fprintf (dump_file, "nodes [nullptr]:\n"); }
+    fprintf (dump_file, "list is ");
+    if (list->is_linearized) { fprintf (dump_file, "n't linearized\n"); }
+    else                     { fprintf (dump_file,     "linearized\n"); }
+
+
+    fprintf (dump_file, "root     %d\n",   1);
+    fprintf (dump_file, "size     %d\n",   list->size);
+    fprintf (dump_file, "capacity %d\n\n", list->capacity);
+    if (list->root) { fprintf (dump_file, "nodes [%p]:\n", list->root); }
+    else            { fprintf (dump_file, "nodes [nullptr]:\n"); }
+
+
+    for (int i = 0; i < list->capacity; i++) {
+    
+        if (i == 0)                         { fprintf (dump_file, "(root) "); }
+        else if (list->root [i].prev != -1) { fprintf (dump_file, "(in)   "); }
+        else                                { fprintf (dump_file, "(out)  "); }
+
+        fprintf (dump_file, "[%2d] ", i);
+        fprintf (dump_file, "%-4.2lf ", list->root [i].element.value);
+
+        if (list->root [i].element.poisoned) { fprintf (dump_file, "    (poisoned) "); }
+        else                                 { fprintf (dump_file, "(not poisoned) "); }
+
+        fprintf (dump_file, "next - [%2d], prev - [%2d]\n", list->root [i].next, list->root [i].prev);
+    }
+
+
+    fprintf (dump_file, "\nfree elements:\n");
+    for (int i = list->top_free_ind; i != -1; i = list->root [i].next) {
+    
+        if (list->root [i].prev != -1) { fprintf (dump_file, "(in)   "); }
+        else                           { fprintf (dump_file, "(out)  "); }
+
+        fprintf (dump_file, "[%2d] ", i);
+        fprintf (dump_file, "%-4.2lf ",  list->root [i].element.value);
+
+        if (list->root [i].element.poisoned) { fprintf (dump_file, "    (poisoned) "); }
+        else                                 { fprintf (dump_file, "(not poisoned) "); }
+
+        fprintf (dump_file, "next - [%2d], prev - [%2d]\n", list->root [i].next, list->root [i].prev);
+    }
 
 
     fprintf (dump_file, "\n");
@@ -304,7 +450,7 @@ Return_code _list_fill_with_poison (List* list, int from, int to) {
 
     for (int i = from; i < to; i++) {
 
-        list->eternal[i] = Element {NAN, true};
+        list->root[i] = Element {NAN, true};
     }
 
 
@@ -314,5 +460,18 @@ Return_code _list_fill_with_poison (List* list, int from, int to) {
     return SUCCESS;
 }
 */
+
+
+int  _remainder  (int a, int b) {
+
+    assert (b != 0);
+
+
+    int ans = a % b;
+    if (ans < 0) { ans += b; }
+
+
+    return ans;
+}
 
 

@@ -5,6 +5,9 @@
 #include "../lib/stack.hpp"
 
 
+static char GLOBAL_graph_dump_num [100] = "1";
+
+
 Return_code  _list_ctor  (List* list, const char* name, const char* file, const char* func, int line) {
 
     assert ( (file) && (name) && (func) && (line > 0) );
@@ -106,16 +109,16 @@ Return_code  list_linearize  (List* list) {
     if (!new_buffer) { LOG_ERROR (MEMORY_ERR); LIST_ERROR_DUMP (list); return MEMORY_ERR; }
 
 
-    int logical_num  = 0;
-    int physical_num = 0;
-    while (logical_num <= list->size) {
+    int logical_ind  = 0;
+    int physical_ind = 0;
+    while (logical_ind <= list->size) {
 
-        new_buffer[logical_num]      = list->root[physical_num];
-        new_buffer[logical_num].next = _remainder ( (logical_num + 1), (list->size + 1) );
-        new_buffer[logical_num].prev = _remainder ( (logical_num - 1), (list->size + 1) );
+        new_buffer[logical_ind]      = list->root[physical_ind];
+        new_buffer[logical_ind].next = _remainder ( (logical_ind + 1), (list->size + 1) );
+        new_buffer[logical_ind].prev = _remainder ( (logical_ind - 1), (list->size + 1) );
 
-        physical_num = list->root[physical_num].next;
-        logical_num++;
+        physical_ind = list->root[physical_ind].next;
+        logical_ind++;
     }
 
 
@@ -124,7 +127,7 @@ Return_code  list_linearize  (List* list) {
 
 
     list->top_free_ind = -1;
-    try ( _list_free_stack_fill (list, logical_num, list->capacity) );
+    try ( _list_free_stack_fill (list, logical_ind, list->capacity) );
 
 
     list->is_linearized = true;
@@ -697,12 +700,22 @@ bool  list_linearized  (List* list) {
 }
 
 
-void  _flist_graphdump  (List* list, const char* file_name, const char* file, const char* func, int line, const char* num, const char* additional_text) {
+void  _flist_graphdump  (List* list, const char* file_name, const char* file, const char* func, int line, const char* additional_text) {
 
     assert ( (file_name) && (file) && (func) && (line > 0) );
 
 
-    FILE* dump_file = fopen (file_name, "a");
+    char file_path [MAX_COMMAND_LEN] = "";
+    strcat (file_path, file_name);
+    strcat (file_path, ".html");
+
+
+    const char* file_mode = nullptr;
+    if ( !strcmp (GLOBAL_graph_dump_num, "1")) { file_mode = "w"; }
+    else                                       { file_mode = "a"; }
+
+
+    FILE* dump_file = fopen (file_path, file_mode);
     if (dump_file == nullptr) { LOG_ERROR (FILE_ERR); return; }
 
 
@@ -788,9 +801,12 @@ void  _flist_graphdump  (List* list, const char* file_name, const char* file, co
 
 
     char name [MAX_COMMAND_LEN] = list_graph_file_name;
-    strcat (name, num);
-    strcat (name, ".txt");
-    fprintf (dump_file, "<img src=\"%s\">", name);
+    strcat (name, GLOBAL_graph_dump_num);
+    strcat (name, ".svg");
+    fprintf (dump_file, "<img src=\"%s\" width=\"%zd\">", name, GRAPH_WIDTH);
+
+
+    itoa ( (atoi (GLOBAL_graph_dump_num) + 1), GLOBAL_graph_dump_num, DEFAULT_COUNTING_SYSTEM); //incrementation of graph_dump_num
 
 
     fclose (dump_file);
@@ -805,14 +821,17 @@ void  list_show_graph_dump  (void) {
     system (command);
 }
 
-void  list_generate_graph_describtion  (List* list, const char* num) {
+void  list_generate_graph_describtion  (List* list) {
 
-    if (!list) { return; } printf ("%s\n", num);
+    if (!list) { return; }
+
+
+    printf ("generating %s graph dump...\n", GLOBAL_graph_dump_num);
 
 
     char name [MAX_COMMAND_LEN] = "";
     strcat (name, list_graph_describtion_file_name);
-    strcat (name, num);
+    strcat (name, GLOBAL_graph_dump_num);
     strcat (name, ".txt");
 
     FILE* graph_file = fopen (name, "w");
@@ -876,17 +895,33 @@ void  list_generate_graph_describtion  (List* list, const char* num) {
 }
 
 
-void  list_generate_graph  (const char* num) {
+void  list_generate_graph  (void) {
 
     char command [MAX_COMMAND_LEN] = "dot -Tsvg ";
     strcat (command, list_graph_describtion_file_name);
-    strcat (command, num);
+    strcat (command, GLOBAL_graph_dump_num);
     strcat (command, ".txt");
     strcat (command, " -o ");
+    strcat (command, "work/");
     strcat (command, list_graph_file_name);
-    strcat (command, num);
-    strcat (command, ".txt");
+    strcat (command, GLOBAL_graph_dump_num);
+    strcat (command, ".svg");
     system (command);
 }
 
+
+int  list_search_physical_index_given_logical_index  (List* list, int logical_ind) { //don't use this too much!
+
+    ASSERT_LIST_OK (list);
+
+
+    int physical_ind = 0;
+    for (int i = 0; i < logical_ind; i++) {
+    
+        physical_ind = list->root [physical_ind].next;
+    }
+
+
+    return physical_ind;
+}
 

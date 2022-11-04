@@ -213,109 +213,19 @@ Return_code _list_fill_with_poison (List* list, int from,  int to) {
 
 Return_code  list_push_front  (List* list, Element_value new_element_value) {
 
-    ASSERT_LIST_OK (list);
-
-
-    if (list->top_free_ind == -1) {
-
-        try ( LIST_PUSH_RESIZE (list) );
-    }
-
-
-    int anker          = list->top_free_ind;
-    list->top_free_ind = list->root [list->top_free_ind].next;
-
-
-    list->root [anker] = {
-        .element = {.value = new_element_value, .poisoned = false},
-        .prev    = 0,
-        .next    = list->root->next,
-    };
-
-    list->root [list->root->next].prev = anker;
-    list->root->next                   = anker;
-
-
-    list->is_linearized = false;
-    list->size += 1;
-
-
-    LIST_AFTER_OPERATION_DUMPING (list);
-
-
-    return SUCCESS;
+    return list_push_after (list, 0, new_element_value);
 }
 
 
 Return_code  list_push_back  (List* list, Element_value new_element_value) {
 
-    ASSERT_LIST_OK (list);
-
-
-    if (list->top_free_ind == -1) {
-
-        try ( LIST_PUSH_RESIZE (list) );
-    }
-
-
-    int anker          = list->top_free_ind;
-    list->top_free_ind = list->root [list->top_free_ind].next;
-
-
-    list->root [anker] = {
-        .element = {new_element_value, false},
-        .prev    = list->root->prev,
-        .next    = 0
-    };
-
-    list->root [list->root->prev].next = anker;
-    list->root->prev                   = anker;
-
-
-    list->is_linearized = false;
-    list->size += 1;
-
-
-    LIST_AFTER_OPERATION_DUMPING (list);
-
-
-    return SUCCESS;
+    return list_push_after (list, list->root->prev, new_element_value);
 }
 
 
 Return_code  list_push_before  (List* list, int target, Element_value new_element_value) {
 
-    ASSERT_LIST_OK (list);
-
-
-    if (list->top_free_ind == -1) {
-
-        try ( LIST_PUSH_RESIZE (list) );
-    }
-
-
-    int anker          = list->top_free_ind;
-    list->top_free_ind = list->root [list->top_free_ind].next;
-
-
-    list->root [anker] = Node {
-        .element = Element {new_element_value, false},
-        .prev    = list->root [target].prev,
-        .next    = target,
-    };
-
-    list->root [list->root [target].prev].next = anker;
-    list->root [target].prev                   = anker;
-
-
-    list->is_linearized = false;
-    list->size += 1;
-
-
-    LIST_AFTER_OPERATION_DUMPING (list);
-
-
-    return SUCCESS;
+    return list_push_after (list, list->root [target].prev, new_element_value);
 }
 
 
@@ -357,142 +267,19 @@ Return_code  list_push_after  (List* list, int target, Element_value new_element
 
 Element  list_pop_back  (List* list, Return_code* return_code_ptr, bool shrink) {
 
-    ASSERT_LIST_OK_FOR_LIST_POP (list);
-
-
-    Element return_element = {NAN, true};
-    int     deleted_ind    = list->root->prev;
-
-
-    if (list->size != 0) {
-
-        list->size -= 1;
-
-
-        return_element = list->root [deleted_ind].element;
-
-
-        list->root [list->root [deleted_ind].prev].next = 0;                             //uberprev
-        list->root->prev                                = list->root [deleted_ind].prev; //root
-        _list_free_stack_push (list, deleted_ind);                                       //prev
-    }
-
-
-    if ( (shrink) && (double) list->size * pow (list_resize_coefficient, 2) <= (double) (list->capacity - 1) ) {
-
-        Return_code resize_code = LIST_POP_RESIZE (list);
-
-        if (resize_code) {
-
-            LOG_ERROR (resize_code);
-            if (return_code_ptr) { *return_code_ptr = BAD_ARGS; }
-            LIST_ERROR_DUMP (list);
-            return Element {NAN, true};
-        }
-    }
-
-
-    if (return_code_ptr) { *return_code_ptr = SUCCESS; }
-
-
-    LIST_AFTER_OPERATION_DUMPING (list);
-
-
-    return return_element;
+    return list_pop_after (list, list->root [list->root->prev].prev, return_code_ptr, shrink);
 }
 
 
 Element  list_pop_front  (List* list, Return_code* return_code_ptr, bool shrink) {
 
-    ASSERT_LIST_OK_FOR_LIST_POP (list);
-
-
-    Element return_element = {NAN, true};
-    int     deleted_ind    = list->root->next;
-
-
-    if (list->size != 0) {
-
-        list->size -= 1;
-
-
-        return_element = list->root [deleted_ind].element;
-
-
-        list->root [list->root [deleted_ind].next].prev = 0;                             //ubernext
-        list->root->next                                = list->root [deleted_ind].next; //root
-        _list_free_stack_push (list, deleted_ind);                                       //next
-    }
-
-
-    if ( (shrink) && (double) list->size * pow (list_resize_coefficient, 2) <= (double) (list->capacity - 1) ) {
-
-        Return_code resize_code = LIST_POP_RESIZE (list);
-
-        if (resize_code) {
-
-            LOG_ERROR (resize_code);
-            if (return_code_ptr) { *return_code_ptr = BAD_ARGS; }
-            LIST_ERROR_DUMP (list);
-            return Element {NAN, true};
-        }
-    }
-
-
-    if (return_code_ptr) { *return_code_ptr = SUCCESS; }
-
-
-    LIST_AFTER_OPERATION_DUMPING (list);
-
-
-    return return_element;
+    return list_pop_after (list, 0, return_code_ptr, shrink);
 }
 
 
 Element  list_pop_before  (List* list, int target, Return_code* return_code_ptr, bool shrink) {
 
-    ASSERT_LIST_OK_FOR_LIST_POP (list);
-
-
-    Element return_element = {NAN, true};
-    int     deleted_ind    = list->root [target].prev;
-
-
-    if (list->size != 0) {
-
-        list->size -= 1;
-
-
-        return_element = list->root [deleted_ind].element;
-
-
-        list->root [list->root [deleted_ind].prev].next = target;                        //uberprev
-        list->root [target].prev                        = list->root [deleted_ind].prev; //target
-        _list_free_stack_push (list, deleted_ind);                                       //deleted
-    }
-
-
-    if ( (shrink) && (double) list->size * pow (list_resize_coefficient, 2) <= (double) (list->capacity - 1) ) {
-
-        Return_code resize_code = LIST_POP_RESIZE (list);
-
-        if (resize_code) {
-
-            LOG_ERROR (resize_code);
-            if (return_code_ptr) { *return_code_ptr = BAD_ARGS; }
-            LIST_ERROR_DUMP (list);
-            return Element {NAN, true};
-        }
-    }
-
-
-    if (return_code_ptr) { *return_code_ptr = SUCCESS; }
-
-
-    LIST_AFTER_OPERATION_DUMPING (list);
-
-
-    return return_element;
+    return list_pop_after (list, list->root [list->root [target].prev].prev, return_code_ptr, shrink);
 }
 
 

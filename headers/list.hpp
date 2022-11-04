@@ -148,7 +148,6 @@ const size_t LIST_SIZE = sizeof (List);
 Return_code _list_ctor          (List* list, const char* name, const char* file, const char* func, int line);
 Return_code  list_dtor          (List* list);
 Return_code  list_resize        (List* list, int new_capacity, bool linearize = false);
-Return_code _list_canary_resize (List* list, int new_capacity);
 
 Return_code  list_push_front    (List* list, Element_value new_element_value);
 Return_code  list_push_back     (List* list, Element_value new_element_value);
